@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<title>Bilancio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  body { margin: 0; background: #F3F4F9; }
+  .font-display { font-family: 'Space Grotesk', sans-serif; }
+  .font-body { font-family: 'Inter', sans-serif; }
+  input::placeholder { color: #B4B8C8; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo, useCallback } = React;
+
+const BG = "#F3F4F9";
+const CARD = "#FFFFFF";
+const INK = "#171A2B";
+const INK_SOFT = "#8A8FA3";
+const LINE = "#ECEDF4";
+const GREEN = "#00B87C";
+const RED = "#FF5B5B";
+const GRAD = "linear-gradient(135deg, #7C5CFC 0%, #4C6FFF 100%)";
+const ACCENT = "#4C6FFF";
+
+const CATEGORIES = [
+  { id: "cibo", label: "Cibo & Spesa", emoji: "🛒", color: "#00B87C" },
+  { id: "ristoranti", label: "Ristoranti & Bar", emoji: "🍽️", color: "#FF8A3D" },
+  { id: "casa", label: "Casa & Bollette", emoji: "🏠", color: "#4C6FFF" },
+  { id: "trasporti", label: "Trasporti", emoji: "🚗", color: "#00B8D9" },
+  { id: "sport", label: "Sport & Benessere", emoji: "🏋️", color: "#12C2A9" },
+  { id: "tempolibero", label: "Tempo Libero", emoji: "🎬", color: "#8B5CF6" },
+  { id: "curapersonale", label: "Cura Personale", emoji: "💇", color: "#F45B96" },
+  { id: "shopping", label: "Shopping", emoji: "🛍️", color: "#F5A623" },
+  { id: "altro", label: "Altro", emoji: "⚪", color: "#9096A8" },
+];
+const CAT_MAP = Object.fromEntries(CATEGORIES.map((c) => [c.id, c]));
+
+const DEFAULT_FIXED_TEMPLATES = [
+  { id: "mutuo", name: "Mutuo", amount: 600, category: "casa" },
+  { id: "auto", name: "Finanziamento auto", amount: 328, category: "trasporti" },
+  { id: "utenze", name: "Utenze", amount: 62, category: "casa" },
+  { id: "palestra", name: "Palestra", amount: 60, category: "sport" },
+  { id: "tim", name: "TIM", amount: 39, category: "altro" },
+  { id: "treno", name: "Trenitalia", amount: 139, category: "trasporti" },
+  { id: "streaming", name: "Streaming", amount: 17, category: "tempolibero" },
+  { id: "pulizie", name: "Pulizie", amount: 50, category: "casa" },
+];
+
+const MESI = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
+const MESI_BREVE = ["Gen","Feb","Mar","Apr","Mag","Giu","Lug","Ago","Set","Ott","Nov","Dic"];
+
+const todayISO = () => new Date().toISOString().slice(0, 10);
+const monthKey = (d) => d.slice(0, 7);
+const eur = (n) => n.toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const statusKey = (mk, tid) => `${mk}::${tid}`;
+
+function loadLS(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch (e) {
+    return fallback;
+  }
+}
+function saveLS(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (e) {}
+}
+
+function lastNMonths(n) {
+  const out = [];
+  const now = new Date();
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    out.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+  }
+  return out;
+}
+
+function EmojiBadge({ emoji, color, size = 34, fontSize = 16 }) {
+  return (
+    <div className="flex items-center justify-center rounded-full shrink-0" style={{ width: size, height: size, backgroundColor: color, fontSize }}>
+      {emoji}
+    </div>
+  );
+}
+
+function TabBar({ active, onChange }) {
+  const tabs = [
+    { id: "inserimento", label: "Home", emoji: "💳" },
+    { id: "forecast", label: "Forecast", emoji: "🎯" },
+    { id: "trend", label: "Trend", emoji: "📊" },
+  ];
+  return (
+    <div className="fixed bottom-0 left-0 right-0 z-40" style={{ backgroundColor: CARD, borderTop: `1px solid ${LINE}` }}>
+      <div className="max-w-md mx-auto flex px-2 py-2">
+        {tabs.map(({ id, label, emoji }) => {
+          const isActive = active === id;
+          return (
+            <button key={id} onClick={() => onChange(id)} className="flex-1 flex flex-col items-center gap-1 py-1.5 rounded-2xl transition-colors" style={{ backgroundColor: isActive ? "#F0F1FB" : "transparent" }}>
+              <span style={{ fontSize: 18, opacity: isActive ? 1 : 0.55 }}>{emoji}</span>
+              <span className="text-[11px] font-semibold" style={{ color: isActive ? ACCENT : INK_SOFT }}>{label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function MonthNav({ viewMonth, onChange, light }) {
+  const isFuture = viewMonth >= monthKey(todayISO());
+  const [vy, vm] = viewMonth.split("-").map(Number);
+  const changeMonth = (delta) => {
+    const d = new Date(vy, vm - 1 + delta, 1);
+    const next = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    if (next > monthKey(todayISO())) return;
+    onChange(next);
+  };
+  const col = light ? "rgba(255,255,255,0.85)" : INK_SOFT;
+  const btnBg = light ? "rgba(255,255,255,0.18)" : "#F3F4F9";
+  return (
+    <div className="flex items-center justify-between mb-4">
+      <button onClick={() => changeMonth(-1)} className="p-1.5 rounded-full" style={{ backgroundColor: btnBg }}>
+        <span style={{ color: col }}>◀</span>
+      </button>
+      <span className="text-sm font-semibold" style={{ color: col }}>{MESI[vm - 1]} {vy}</span>
+      <button onClick={() => changeMonth(1)} disabled={isFuture} className="p-1.5 rounded-full" style={{ backgroundColor: btnBg, opacity: isFuture ? 0.3 : 1 }}>
+        <span style={{ color: col }}>▶</span>
+      </button>
+    </div>
+  );
+}
+
+function Segmented({ value, onChange, options }) {
+  return (
+    <div className="flex p-1 rounded-2xl mb-5" style={{ backgroundColor: "#EAEBF3" }}>
+      {options.map((opt) => {
+        const active = value === opt.id;
+        return (
+          <button key={opt.id} onClick={() => onChange(opt.id)} className="flex-1 py-2 rounded-xl text-sm font-semibold transition-colors" style={{ backgroundColor: active ? CARD : "transparent", color: active ? INK : INK_SOFT, boxShadow: active ? "0 1px 3px rgba(23,26,43,0.1)" : "none" }}>
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function MiniStackedChart({ data, budget }) {
+  const maxVal = Math.max(budget, ...data.map((r) => r.total), 1);
+  return (
+    <div className="relative" style={{ height: 200 }}>
+      <div className="absolute left-0 right-0 border-t border-dashed" style={{ borderColor: ACCENT, top: `${100 - (budget / maxVal) * 100}%` }}>
+        <span className="text-[10px] font-medium absolute right-0 -top-4" style={{ color: ACCENT }}>budget</span>
+      </div>
+      <div className="flex items-end justify-between h-full gap-2 px-1">
+        {data.map((row) => (
+          <div key={row.mk} className="flex-1 flex flex-col items-center justify-end h-full">
+            <div className="w-full flex flex-col-reverse rounded-t-md overflow-hidden" style={{ height: `${(row.total / maxVal) * 100}%`, minHeight: row.total > 0 ? 4 : 0 }}>
+              {CATEGORIES.map((c) => {
+                const v = row[c.id] || 0;
+                if (v <= 0) return null;
+                return <div key={c.id} style={{ height: `${(v / (row.total || 1)) * 100}%`, backgroundColor: c.color }} />;
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="flex justify-between px-1 mt-2">
+        {data.map((row) => (
+          <span key={row.mk} className="flex-1 text-center text-[11px]" style={{ color: INK_SOFT }}>{row.month}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DonutChart({ data, size = 116, thickness = 15 }) {
+  const total = data.reduce((s, d) => s + d.value, 0);
+  const r = (size - thickness) / 2;
+  const C = 2 * Math.PI * r;
+  let cumulative = 0;
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#F0F1F6" strokeWidth={thickness} />
+      {total > 0 && data.map((d, i) => {
+        const frac = d.value / total;
+        const dash = frac * C;
+        const gap = C - dash;
+        const offset = -cumulative * C;
+        cumulative += frac;
+        return <circle key={i} cx={size / 2} cy={size / 2} r={r} fill="none" stroke={d.color} strokeWidth={thickness} strokeDasharray={`${dash} ${gap}`} strokeDashoffset={offset} transform={`rotate(-90 ${size / 2} ${size / 2})`} />;
+      })}
+      <text x="50%" y="46%" textAnchor="middle" style={{ fontFamily: "Space Grotesk", fontWeight: 700, fontSize: 17, fill: INK }}>€{Math.round(total)}</text>
+      <text x="50%" y="62%" textAnchor="middle" style={{ fontFamily: "Inter", fontSize: 10, fill: INK_SOFT }}>speso</text>
+    </svg>
+  );
+}
+
+function RingProgress({ pct, size = 160, thickness = 14, color, trackColor }) {
+  const r = (size - thickness) / 2;
+  const C = 2 * Math.PI * r;
+  const dash = (Math.min(100, Math.max(0, pct)) / 100) * C;
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={trackColor} strokeWidth={thickness} />
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={thickness} strokeDasharray={`${dash} ${C - dash}`} strokeLinecap="round" transform={`rotate(-90 ${size / 2} ${size / 2})`} />
+    </svg>
+  );
+}
+
+function Bilancio() {
+  const [tab, setTab] = useState("inserimento");
+  const [segment, setSegment] = useState("variabili");
+
+  const [expenses, setExpenses] = useState(() => loadLS("expenses", []));
+  const [fixedTemplates, setFixedTemplates] = useState(() => loadLS("fixed-templates", DEFAULT_FIXED_TEMPLATES));
+  const [fixedStatus, setFixedStatus] = useState(() => loadLS("fixed-status", {}));
+  const [incomeEntries, setIncomeEntries] = useState(() => loadLS("income-entries", []));
+  const [monthlyBudget, setMonthlyBudget] = useState(() => loadLS("budget-settings", { monthlyBudget: 2438 }).monthlyBudget);
+
+  const [viewMonth, setViewMonth] = useState(monthKey(todayISO()));
+  const [amount, setAmount] = useState("");
+  const [category, setCategory] = useState("cibo");
+  const [note, setNote] = useState("");
+  const [error, setError] = useState("");
+
+  const [incomeAmount, setIncomeAmount] = useState("");
+  const [incomeLabel, setIncomeLabel] = useState("");
+
+  const [showSettings, setShowSettings] = useState(false);
+  const [budgetDraft, setBudgetDraft] = useState(String(monthlyBudget));
+
+  const [editingFixed, setEditingFixed] = useState(null);
+  const [fixedNameDraft, setFixedNameDraft] = useState("");
+  const [fixedAmountDraft, setFixedAmountDraft] = useState("");
+  const [fixedCategoryDraft, setFixedCategoryDraft] = useState("casa");
+
+  const persist = useCallback((key, value, setter) => {
+    setter(value);
+    saveLS(key, value);
+  }, []);
+
+  const saveBudget = () => {
+    const val = parseFloat(budgetDraft.replace(",", "."));
+    if (isNaN(val) || val <= 0) return;
+    setMonthlyBudget(val);
+    saveLS("budget-settings", { monthlyBudget: val });
+    setShowSettings(false);
+  };
+
+  const addExpense = () => {
+    const val = parseFloat(amount.replace(",", "."));
+    if (isNaN(val) || val <= 0) { setError("Inserisci un importo valido."); return; }
+    setError("");
+    const entry = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, amount: val, category, note: note.trim(), date: todayISO() };
+    persist("expenses", [entry, ...expenses], setExpenses);
+    setAmount(""); setNote("");
+  };
+  const deleteExpense = (id) => persist("expenses", expenses.filter((e) => e.id !== id), setExpenses);
+
+  const addIncome = () => {
+    const val = parseFloat(incomeAmount.replace(",", "."));
+    if (isNaN(val) || val <= 0) { setError("Inserisci un importo valido."); return; }
+    setError("");
+    const entry = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, amount: val, label: incomeLabel.trim() || "Entrata", date: todayISO() };
+    persist("income-entries", [entry, ...incomeEntries], setIncomeEntries);
+    setIncomeAmount(""); setIncomeLabel("");
+  };
+  const deleteIncome = (id) => persist("income-entries", incomeEntries.filter((e) => e.id !== id), setIncomeEntries);
+
+  const openFixedEditor = (tpl) => {
+    if (tpl) {
+      const st = fixedStatus[statusKey(viewMonth, tpl.id)];
+      setEditingFixed(tpl);
+      setFixedNameDraft(tpl.name);
+      setFixedAmountDraft(String(st?.amount ?? tpl.amount));
+      setFixedCategoryDraft(tpl.category);
+    } else {
+      setEditingFixed({ isNew: true });
+      setFixedNameDraft(""); setFixedAmountDraft(""); setFixedCategoryDraft("casa");
+    }
+  };
+
+  const saveFixedEditor = () => {
+    const val = parseFloat(fixedAmountDraft.replace(",", "."));
+    if (!fixedNameDraft.trim() || isNaN(val) || val <= 0) return;
+    if (editingFixed.isNew) {
+      const tpl = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 5)}`, name: fixedNameDraft.trim(), amount: val, category: fixedCategoryDraft };
+      persist("fixed-templates", [...fixedTemplates, tpl], setFixedTemplates);
+    } else {
+      const updated = fixedTemplates.map((t) => (t.id === editingFixed.id ? { ...t, name: fixedNameDraft.trim(), category: fixedCategoryDraft } : t));
+      persist("fixed-templates", updated, setFixedTemplates);
+      const key = statusKey(viewMonth, editingFixed.id);
+      persist("fixed-status", { ...fixedStatus, [key]: { ...(fixedStatus[key] || {}), amount: val } }, setFixedStatus);
+    }
+    setEditingFixed(null);
+  };
+
+  const deleteFixedTemplate = () => {
+    if (!editingFixed || editingFixed.isNew) return;
+    persist("fixed-templates", fixedTemplates.filter((t) => t.id !== editingFixed.id), setFixedTemplates);
+    setEditingFixed(null);
+  };
+
+  const toggleFixedPaid = (tpl) => {
+    const key = statusKey(viewMonth, tpl.id);
+    const current = fixedStatus[key] || {};
+    persist("fixed-status", { ...fixedStatus, [key]: { ...current, paid: !current.paid } }, setFixedStatus);
+  };
+
+  const monthExpenses = useMemo(() => expenses.filter((e) => monthKey(e.date) === viewMonth).sort((a, b) => (a.date < b.date ? 1 : -1)), [expenses, viewMonth]);
+  const monthIncome = useMemo(() => incomeEntries.filter((e) => monthKey(e.date) === viewMonth).sort((a, b) => (a.date < b.date ? 1 : -1)), [incomeEntries, viewMonth]);
+  const fixedForMonth = useMemo(() => fixedTemplates.map((t) => {
+    const st = fixedStatus[statusKey(viewMonth, t.id)] || {};
+    return { ...t, effectiveAmount: st.amount ?? t.amount, paid: !!st.paid };
+  }), [fixedTemplates, fixedStatus, viewMonth]);
+
+  const totals = useMemo(() => {
+    const byCategory = {};
+    let variableTotal = 0;
+    for (const e of monthExpenses) { byCategory[e.category] = (byCategory[e.category] || 0) + e.amount; variableTotal += e.amount; }
+    const fixedTotal = fixedForMonth.reduce((s, f) => s + f.effectiveAmount, 0);
+    const incomeTotal = monthIncome.reduce((s, i) => s + i.amount, 0);
+    const saldo = incomeTotal - fixedTotal - variableTotal;
+    const [y, m] = viewMonth.split("-").map(Number);
+    const daysInMonth = new Date(y, m, 0).getDate();
+    const isCurrentMonth = viewMonth === monthKey(todayISO());
+    const today = new Date().getDate();
+    const daysElapsed = isCurrentMonth ? today : daysInMonth;
+    const daysLeft = isCurrentMonth ? daysInMonth - today : 0;
+    const avgDaily = daysElapsed > 0 ? variableTotal / daysElapsed : 0;
+    const variableForecast = isCurrentMonth ? avgDaily * daysInMonth : variableTotal;
+    const forecastSaldo = incomeTotal - fixedTotal - variableForecast;
+    const remaining = monthlyBudget - variableTotal;
+    const dailyBudgetLeft = isCurrentMonth && daysLeft > 0 ? remaining / daysLeft : null;
+    return { byCategory, variableTotal, fixedTotal, incomeTotal, saldo, forecastSaldo, variableForecast, remaining, isCurrentMonth, daysLeft, avgDaily, dailyBudgetLeft };
+  }, [monthExpenses, fixedForMonth, monthIncome, viewMonth, monthlyBudget]);
+
+  const trendData = useMemo(() => {
+    const months = lastNMonths(6);
+    return months.map((mk) => {
+      const [y, m] = mk.split("-").map(Number);
+      const row = { month: MESI_BREVE[m - 1], mk, total: 0 };
+      for (const c of CATEGORIES) row[c.id] = 0;
+      let variableTotal = 0;
+      for (const e of expenses) { if (monthKey(e.date) === mk) { row[e.category] = (row[e.category] || 0) + e.amount; row.total += e.amount; variableTotal += e.amount; } }
+      const fixedTotal = fixedTemplates.reduce((s, t) => { const st = fixedStatus[statusKey(mk, t.id)]; return s + (st?.amount ?? t.amount); }, 0);
+      const incomeTotal = incomeEntries.filter((e) => monthKey(e.date) === mk).reduce((s, e) => s + e.amount, 0);
+      row.saldo = incomeTotal - fixedTotal - variableTotal;
+      return row;
+    });
+  }, [expenses, fixedTemplates, fixedStatus, incomeEntries]);
+
+  return (
+    <div style={{ backgroundColor: BG, minHeight: "100vh", color: INK }} className="w-full font-body">
+      <div className="max-w-md mx-auto px-4 pt-8 pb-24">
+        <div className="flex items-center justify-between mb-5">
+          <h1 className="font-display text-2xl font-bold tracking-tight">Bilancio</h1>
+          <button onClick={() => setShowSettings(true)} className="p-2 rounded-full" style={{ backgroundColor: CARD, border: `1px solid ${LINE}` }}>⚙️</button>
+        </div>
+
+        {tab === "inserimento" && (
+          <div>
+            <div className="rounded-3xl p-6 mb-5" style={{ background: GRAD }}>
+              <MonthNav viewMonth={viewMonth} onChange={setViewMonth} light />
+              <p className="text-xs font-medium mb-1" style={{ color: "rgba(255,255,255,0.75)" }}>Saldo del mese</p>
+              <p className="font-display text-4xl font-bold" style={{ color: totals.saldo < 0 ? "#FFD166" : "#FFFFFF" }}>
+                {totals.saldo < 0 ? "− " : ""}€ {eur(Math.abs(totals.saldo))}
+              </p>
+              <div className="flex gap-4 mt-3 pt-3" style={{ borderTop: "1px solid rgba(255,255,255,0.25)" }}>
+                <div><p className="text-[11px]" style={{ color: "rgba(255,255,255,0.7)" }}>Entrate</p><p className="text-sm font-semibold text-white">€ {eur(totals.incomeTotal)}</p></div>
+                <div><p className="text-[11px]" style={{ color: "rgba(255,255,255,0.7)" }}>Fisse</p><p className="text-sm font-semibold text-white">€ {eur(totals.fixedTotal)}</p></div>
+                <div><p className="text-[11px]" style={{ color: "rgba(255,255,255,0.7)" }}>Variabili</p><p className="text-sm font-semibold text-white">€ {eur(totals.variableTotal)}</p></div>
+              </div>
+            </div>
+
+            <Segmented value={segment} onChange={setSegment} options={[{ id: "variabili", label: "Variabili" }, { id: "fisse", label: "Fisse" }, { id: "entrate", label: "Entrate" }]} />
+
+            {segment === "variabili" && (
+              <>
+                <div className="rounded-3xl p-5 mb-5" style={{ backgroundColor: CARD, border: `1px solid ${LINE}` }}>
+                  <div className="flex items-baseline gap-1 mb-4">
+                    <span className="font-display text-xl font-semibold" style={{ color: INK_SOFT }}>€</span>
+                    <input type="text" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0,00" className="font-display text-4xl font-bold bg-transparent outline-none w-full" />
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 mb-4">
+                    {CATEGORIES.map(({ id, label, emoji, color }) => {
+                      const active = category === id;
+                      return (
+                        <button key={id} type="button" onClick={() => setCategory(id)} className="flex flex-col items-center gap-1.5 py-3 rounded-2xl transition-all" style={{ backgroundColor: active ? `${color}18` : "#F8F8FB", border: active ? `1.5px solid ${color}` : "1.5px solid transparent" }}>
+                          <EmojiBadge emoji={emoji} color={color} size={30} fontSize={14} />
+                          <span className="text-[10px] font-medium text-center leading-tight px-1" style={{ color: active ? INK : INK_SOFT }}>{label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <input type="text" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Aggiungi una nota (facoltativo)" className="w-full mb-4 px-4 py-3 rounded-2xl text-sm outline-none" style={{ backgroundColor: "#F8F8FB" }} />
+                  {error && <p className="text-sm mb-3" style={{ color: RED }}>{error}</p>}
+                  <button onClick={addExpense} className="w-full py-3.5 rounded-2xl flex items-center justify-center gap-2 font-semibold text-white" style={{ background: GRAD }}>+ Aggiungi spesa</button>
+                </div>
+
+                {CATEGORIES.filter((c) => totals.byCategory[c.id]).length > 0 && (
+                  <>
+                    <div className="rounded-3xl p-5 mb-3 flex items-center gap-5" style={{ backgroundColor: CARD, border: `1px solid ${LINE}` }}>
+                      <DonutChart data={CATEGORIES.filter((c) => totals.byCategory[c.id]).map((c) => ({ value: totals.byCategory[c.id], color: c.color }))} />
+                      <div className="flex-1 space-y-1.5 min-w-0">
+                        {CATEGORIES.filter((c) => totals.byCategory[c.id]).slice(0, 4).map((c) => {
+                          const pct = totals.variableTotal > 0 ? Math.round((totals.byCategory[c.id] / totals.variableTotal) * 100) : 0;
+                          return (
+                            <div key={c.id} className="flex items-center gap-2">
+                              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
+                              <span className="text-xs truncate flex-1" style={{ color: INK_SOFT }}>{c.label}</span>
+                              <span className="text-xs font-semibold shrink-0">{pct}%</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <p className="text-xs font-semibold uppercase tracking-wide mb-2 px-1" style={{ color: INK_SOFT }}>Per categoria</p>
+                    <div className="space-y-2 mb-5">
+                      {CATEGORIES.filter((c) => totals.byCategory[c.id]).map(({ id, label, emoji, color }) => {
+                        const val = totals.byCategory[id];
+                        const share = totals.variableTotal > 0 ? (val / totals.variableTotal) * 100 : 0;
+                        return (
+                          <div key={id} className="rounded-2xl px-4 py-3" style={{ backgroundColor: CARD, border: `1px solid ${LINE}` }}>
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex items-center gap-2.5"><EmojiBadge emoji={emoji} color={color} size={28} fontSize={13} /><span className="text-sm font-medium">{label}</span></div>
+                              <span className="text-sm font-bold font-display">€ {eur(val)}</span>
+                            </div>
+                            <div className="h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: "#F0F1F6" }}><div className="h-full rounded-full" style={{ width: `${share}%`, backgroundColor: color }} /></div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+
+                {monthExpenses.length > 0 && (
+                  <>
+                    <p className="text-xs font-semibold uppercase tracking-wide mb-2 px-1" style={{ color: INK_SOFT }}>Movimenti</p>
+                    <div className="space-y-1.5">
+                      {monthExpenses.map((e) => {
+                        const cat = CAT_MAP[e.category] || CATEGORIES[CATEGORIES.length - 1];
+                        return (
+                          <div key={e.id} className="flex items-center gap-3 px-4 py-3 rounded-2xl" style={{ backgroundColor: CARD, border: `1px solid ${LINE}` }}>
+                            <EmojiBadge emoji={cat.emoji} color={cat.color} />
+                            <div className="flex-1 min-w-0"><p className="text-sm font-medium truncate">{e.note || cat.label}</p><p className="text-xs" style={{ color: INK_SOFT }}>{e.date.split("-").reverse().join("/")}</p></div>
+                            <span className="text-sm font-bold font-display shrink-0">€ {eur(e.amount)}</span>
+                            <button onClick={() => deleteExpense(e.id)} className="p-1.5 shrink-0">🗑️</button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+
+            {segment === "fisse" && (
+              <>
+                <div className="space-y-1.5 mb-4">
+                  {fixedForMonth.map((f) => {
+                    const cat = CAT_MAP[f.category] || CATEGORIES[CATEGORIES.length - 1];
+                    return (
+                      <div key={f.id} className="flex items-center gap-3 px-4 py-3 rounded-2xl" style={{ backgroundColor: CARD, border: `1px solid ${LINE}`, opacity: f.paid ? 0.6 : 1 }}>
+                        <button onClick={() => toggleFixedPaid(f)} className="shrink-0">
+                          <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs" style={{ backgroundColor: f.paid ? GREEN : "#F0F1F6", border: f.paid ? "none" : `1.5px solid ${LINE}`, color: "#fff" }}>{f.paid ? "✓" : ""}</div>
+                        </button>
+                        <EmojiBadge emoji={cat.emoji} color={cat.color} size={30} fontSize={14} />
+                        <div className="flex-1 min-w-0"><p className="text-sm font-medium truncate" style={{ textDecoration: f.paid ? "line-through" : "none" }}>{f.name}</p><p className="text-xs" style={{ color: INK_SOFT }}>{f.paid ? "Pagata" : "Da pagare"}</p></div>
+                        <span className="text-sm font-bold font-display shrink-0">€ {eur(f.effectiveAmount)}</span>
+                        <button onClick={() => openFixedEditor(f)} className="p-1.5 shrink-0">✏️</button>
+                      </div>
+                    );
+                  })}
+                </div>
+                <button onClick={() => openFixedEditor(null)} className="w-full py-3.5 rounded-2xl flex items-center justify-center gap-2 font-semibold" style={{ backgroundColor: "#F0F1FB", color: ACCENT }}>+ Aggiungi voce fissa</button>
+              </>
+            )}
+
+            {segment === "entrate" && (
+              <>
+                <div className="rounded-3xl p-5 mb-5" style={{ backgroundColor: CARD, border: `1px solid ${LINE}` }}>
+                  <div className="flex items-baseline gap-1 mb-4">
+                    <span className="font-display text-xl font-semibold" style={{ color: INK_SOFT }}>€</span>
+                    <input type="text" inputMode="decimal" value={incomeAmount} onChange={(e) => setIncomeAmount(e.target.value)} placeholder="0,00" className="font-display text-4xl font-bold bg-transparent outline-none w-full" />
+                  </div>
+                  <input type="text" value={incomeLabel} onChange={(e) => setIncomeLabel(e.target.value)} placeholder="Stipendio, bonus, extra..." className="w-full mb-4 px-4 py-3 rounded-2xl text-sm outline-none" style={{ backgroundColor: "#F8F8FB" }} />
+                  {error && <p className="text-sm mb-3" style={{ color: RED }}>{error}</p>}
+                  <button onClick={addIncome} className="w-full py-3.5 rounded-2xl flex items-center justify-center gap-2 font-semibold text-white" style={{ backgroundColor: GREEN }}>+ Aggiungi entrata</button>
+                </div>
+                {monthIncome.length > 0 && (
+                  <div className="space-y-1.5">
+                    {monthIncome.map((e) => (
+                      <div key={e.id} className="flex items-center gap-3 px-4 py-3 rounded-2xl" style={{ backgroundColor: CARD, border: `1px solid ${LINE}` }}>
+                        <EmojiBadge emoji="🏦" color={GREEN} />
+                        <div className="flex-1 min-w-0"><p className="text-sm font-medium truncate">{e.label}</p><p className="text-xs" style={{ color: INK_SOFT }}>{e.date.split("-").reverse().join("/")}</p></div>
+                        <span className="text-sm font-bold font-display shrink-0" style={{ color: GREEN }}>+ € {eur(e.amount)}</span>
+                        <button onClick={() => deleteIncome(e.id)} className="p-1.5 shrink-0">🗑️</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        {tab === "forecast" && (
+          <div>
+            <MonthNav viewMonth={viewMonth} onChange={setViewMonth} />
+            <div className="rounded-3xl p-6 mb-4 flex flex-col items-center" style={{ background: GRAD }}>
+              <p className="text-xs font-medium mb-3" style={{ color: "rgba(255,255,255,0.75)" }}>{totals.isCurrentMonth ? "Budget variabili utilizzato" : "Saldo del mese"}</p>
+              <div className="relative flex items-center justify-center" style={{ width: 160, height: 160 }}>
+                <RingProgress pct={monthlyBudget > 0 ? (totals.variableForecast / monthlyBudget) * 100 : 0} color={totals.forecastSaldo < 0 ? "#FFD166" : "#FFFFFF"} trackColor="rgba(255,255,255,0.25)" />
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <p className="text-[10px]" style={{ color: "rgba(255,255,255,0.75)" }}>saldo previsto</p>
+                  <p className="font-display text-2xl font-bold text-center leading-tight" style={{ color: totals.forecastSaldo < 0 ? "#FFD166" : "#FFFFFF" }}>{totals.forecastSaldo < 0 ? "− " : ""}€{eur(Math.abs(totals.forecastSaldo))}</p>
+                </div>
+              </div>
+              <p className="text-xs mt-3" style={{ color: "rgba(255,255,255,0.75)" }}>saldo attuale: {totals.saldo < 0 ? "− " : ""}€ {eur(Math.abs(totals.saldo))}</p>
+            </div>
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <div className="rounded-2xl p-4" style={{ backgroundColor: CARD, border: `1px solid ${LINE}` }}><p className="text-xs font-medium mb-1" style={{ color: INK_SOFT }}>Entrate</p><p className="font-display text-lg font-bold" style={{ color: GREEN }}>€ {eur(totals.incomeTotal)}</p></div>
+              <div className="rounded-2xl p-4" style={{ backgroundColor: CARD, border: `1px solid ${LINE}` }}><p className="text-xs font-medium mb-1" style={{ color: INK_SOFT }}>Spese fisse</p><p className="font-display text-lg font-bold">€ {eur(totals.fixedTotal)}</p></div>
+              <div className="rounded-2xl p-4" style={{ backgroundColor: CARD, border: `1px solid ${LINE}` }}><p className="text-xs font-medium mb-1" style={{ color: INK_SOFT }}>Variabili (proiezione)</p><p className="font-display text-lg font-bold">€ {eur(totals.variableForecast)}</p></div>
+              <div className="rounded-2xl p-4" style={{ backgroundColor: CARD, border: `1px solid ${LINE}` }}><p className="text-xs font-medium mb-1" style={{ color: INK_SOFT }}>Budget variabili</p><p className="font-display text-lg font-bold" style={{ color: totals.remaining < 0 ? RED : INK }}>€ {eur(monthlyBudget)}</p></div>
+            </div>
+            {totals.isCurrentMonth && totals.dailyBudgetLeft !== null && (
+              <div className="rounded-2xl p-4 text-center" style={{ backgroundColor: CARD, border: `1px solid ${LINE}` }}>
+                <p className="text-xs font-medium mb-1" style={{ color: INK_SOFT }}>Puoi spendere al giorno (variabili), fino a fine mese</p>
+                <p className="font-display text-2xl font-bold" style={{ color: totals.dailyBudgetLeft < 0 ? RED : ACCENT }}>€ {eur(Math.max(0, totals.dailyBudgetLeft))} / giorno</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {tab === "trend" && (
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide mb-3 px-1" style={{ color: INK_SOFT }}>Saldo, ultimi 6 mesi</p>
+            <div className="space-y-1.5 mb-5">
+              {trendData.map((row) => (
+                <div key={row.mk} className="flex items-center justify-between px-4 py-3 rounded-2xl" style={{ backgroundColor: CARD, border: `1px solid ${LINE}` }}>
+                  <span className="text-sm font-medium" style={{ color: INK_SOFT }}>{row.month}</span>
+                  <span className="text-sm font-bold font-display" style={{ color: row.saldo < 0 ? RED : GREEN }}>{row.saldo < 0 ? "− " : "+ "}€ {eur(Math.abs(row.saldo))}</span>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs font-semibold uppercase tracking-wide mb-3 px-1" style={{ color: INK_SOFT }}>Spese variabili per categoria</p>
+            <div className="rounded-3xl p-4 mb-4" style={{ backgroundColor: CARD, border: `1px solid ${LINE}` }}>
+              <MiniStackedChart data={trendData} budget={monthlyBudget} />
+            </div>
+            <div className="flex flex-wrap gap-x-3 gap-y-2 px-1">
+              {CATEGORIES.map((c) => (
+                <div key={c.id} className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: c.color }} /><span className="text-xs" style={{ color: INK_SOFT }}>{c.label}</span></div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <TabBar active={tab} onChange={setTab} />
+
+      {showSettings && (
+        <div className="fixed inset-0 flex items-end justify-center z-50" style={{ backgroundColor: "rgba(23,26,43,0.45)" }} onClick={() => setShowSettings(false)}>
+          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-md rounded-t-3xl p-5" style={{ backgroundColor: CARD }}>
+            <div className="flex items-center justify-between mb-4"><h2 className="font-display text-xl font-bold">Budget variabili</h2><button onClick={() => setShowSettings(false)}>✕</button></div>
+            <label className="text-xs font-semibold uppercase tracking-wide" style={{ color: INK_SOFT }}>Importo budget mensile</label>
+            <div className="flex items-baseline gap-1 mt-1 mb-4"><span className="font-display text-xl font-semibold" style={{ color: INK_SOFT }}>€</span><input type="text" inputMode="decimal" value={budgetDraft} onChange={(e) => setBudgetDraft(e.target.value)} className="font-display text-2xl font-bold bg-transparent outline-none w-full" /></div>
+            <button onClick={saveBudget} className="w-full py-3.5 rounded-2xl font-semibold text-white" style={{ background: GRAD }}>Salva</button>
+          </div>
+        </div>
+      )}
+
+      {editingFixed && (
+        <div className="fixed inset-0 flex items-end justify-center z-50" style={{ backgroundColor: "rgba(23,26,43,0.45)" }} onClick={() => setEditingFixed(null)}>
+          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-md rounded-t-3xl p-5" style={{ backgroundColor: CARD }}>
+            <div className="flex items-center justify-between mb-4"><h2 className="font-display text-xl font-bold">{editingFixed.isNew ? "Nuova voce fissa" : "Modifica voce fissa"}</h2><button onClick={() => setEditingFixed(null)}>✕</button></div>
+            <label className="text-xs font-semibold uppercase tracking-wide" style={{ color: INK_SOFT }}>Nome</label>
+            <input type="text" value={fixedNameDraft} onChange={(e) => setFixedNameDraft(e.target.value)} placeholder="es. Mutuo" className="w-full mt-1 mb-4 px-4 py-3 rounded-2xl text-sm outline-none" style={{ backgroundColor: "#F8F8FB" }} />
+            <label className="text-xs font-semibold uppercase tracking-wide" style={{ color: INK_SOFT }}>Importo {!editingFixed.isNew ? "(solo per questo mese)" : ""}</label>
+            <div className="flex items-baseline gap-1 mt-1 mb-4"><span className="font-display text-xl font-semibold" style={{ color: INK_SOFT }}>€</span><input type="text" inputMode="decimal" value={fixedAmountDraft} onChange={(e) => setFixedAmountDraft(e.target.value)} placeholder="0,00" className="font-display text-2xl font-bold bg-transparent outline-none w-full" /></div>
+            <label className="text-xs font-semibold uppercase tracking-wide" style={{ color: INK_SOFT }}>Categoria</label>
+            <div className="grid grid-cols-3 gap-2 mt-2 mb-5">
+              {CATEGORIES.map(({ id, label, emoji, color }) => {
+                const active = fixedCategoryDraft === id;
+                return (
+                  <button key={id} type="button" onClick={() => setFixedCategoryDraft(id)} className="flex flex-col items-center gap-1.5 py-3 rounded-2xl transition-all" style={{ backgroundColor: active ? `${color}18` : "#F8F8FB", border: active ? `1.5px solid ${color}` : "1.5px solid transparent" }}>
+                    <EmojiBadge emoji={emoji} color={color} size={30} fontSize={14} />
+                    <span className="text-[10px] font-medium text-center leading-tight px-1" style={{ color: active ? INK : INK_SOFT }}>{label}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <button onClick={saveFixedEditor} className="w-full py-3.5 rounded-2xl font-semibold text-white mb-2" style={{ background: GRAD }}>Salva</button>
+            {!editingFixed.isNew && <button onClick={deleteFixedTemplate} className="w-full py-3 rounded-2xl font-semibold" style={{ color: RED }}>Elimina voce fissa</button>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<Bilancio />);
+</script>
+</body>
+</html>
